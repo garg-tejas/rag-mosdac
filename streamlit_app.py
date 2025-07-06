@@ -5,6 +5,14 @@ A beautiful web interface for the RAG pipeline with document viewing,
 knowledge graph visualization, and interactive Q&A.
 """
 
+# Fix ChromaDB sqlite3 compatibility issue on Streamlit Cloud
+import sys
+try:
+    import pysqlite3
+    sys.modules["sqlite3"] = pysqlite3
+except ImportError:
+    pass
+
 import streamlit as st
 import os
 import sys
@@ -27,7 +35,26 @@ try:
     from src.modules import crawler, kg_builder, vector_db_builder
     from src.modules.gpu_utils import check_gpu_setup, get_device
 except ImportError as e:
-    st.error(f"Import error: {e}")
+    error_msg = str(e)
+    if "sqlite3" in error_msg.lower() or "chroma" in error_msg.lower():
+        st.error("""
+        🚨 **ChromaDB SQLite Compatibility Issue**
+        
+        This appears to be a SQLite version compatibility issue. For Windows users:
+        
+        **Option 1 - Install Visual C++ Build Tools:**
+        1. Download and install Microsoft C++ Build Tools from: https://visualstudio.microsoft.com/visual-cpp-build-tools/
+        2. Run: `pip install pysqlite3`
+        3. Restart the application
+        
+        **Option 2 - Use Alternative Database:**
+        The application can be configured to use a different vector database if needed.
+        
+        **Option 3 - Use Docker:**
+        Run the application in a Docker container for consistent dependencies.
+        """)
+    else:
+        st.error(f"Import error: {e}")
     st.stop()
 
 # Page configuration
