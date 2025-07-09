@@ -7,7 +7,7 @@ pypdf
 python-docx
 sentence-transformers
 # Vector Database - Pinecone (replacing ChromaDB)
-pinecone-client[grpc]
+pinecone
 # Knowledge Graph - Neo4j
 neo4j
 # GPU acceleration
