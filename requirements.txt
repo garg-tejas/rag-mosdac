@@ -6,11 +6,15 @@ langchain-text-splitters
 pypdf
 python-docx
 sentence-transformers
-chromadb
-pysqlite3-binary
+# Vector Database - Pinecone (replacing ChromaDB)
+pinecone-client[grpc]
+# Knowledge Graph - Neo4j
+neo4j
+# GPU acceleration
 torch
 torchvision
 torchaudio
+# Streamlit and UI
 streamlit
 plotly
 networkx
@@ -18,3 +22,10 @@ streamlit-agraph
 streamlit-ace
 streamlit-option-menu
 extra-streamlit-components
+# Graph visualization
+pyvis
+streamlit-elements
+# Additional graph libraries
+graphviz
+matplotlib
+seaborn

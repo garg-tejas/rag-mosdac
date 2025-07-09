@@ -2,52 +2,79 @@
 import os
 import logging
 from sentence_transformers import SentenceTransformer
-import chromadb
+from pinecone import Pinecone
 from litellm import completion
 from src import config
 from src.modules.gpu_utils import get_device
+from src.modules.vector_db_builder import get_pinecone_index
 
 class RAGPipeline:
     def __init__(self):
-        logging.info("Initializing RAG Pipeline...")
+        logging.info("Initializing RAG Pipeline with Pinecone...")
         
         # Use GPU if available for embedding model
         device = get_device()
         self.embedding_model = SentenceTransformer(config.EMBEDDING_MODEL, device=device)
         
-        # Connect to vector database
-        client = chromadb.PersistentClient(path=config.VECTOR_DB_PATH)
-        self.collection = client.get_collection(name=config.VECTOR_DB_COLLECTION)
-        
-        logging.info(f"RAG Pipeline initialized successfully on {device}.")
-        logging.info(f"Vector database contains {self.collection.count()} documents.")
+        # Connect to Pinecone vector database
+        try:
+            self.index = get_pinecone_index()
+            # Get index stats to verify connection
+            stats = self.index.describe_index_stats()
+            logging.info(f"RAG Pipeline initialized successfully on {device}.")
+            logging.info(f"Pinecone index contains {stats['total_vector_count']} vectors.")
+        except Exception as e:
+            logging.error(f"Failed to connect to Pinecone: {e}")
+            raise
     
     def answer_question(self, query: str, n_results: int = 5):
         """Answer a question using the RAG pipeline."""
         try:
             # Generate query embedding
-            query_embedding = self.embedding_model.encode(query).tolist()
+            query_embedding = self.embedding_model.encode(query, normalize_embeddings=True).tolist()
             
-            # Retrieve relevant documents
-            results = self.collection.query(
-                query_embeddings=[query_embedding], 
-                n_results=n_results,
-                include=['documents', 'metadatas', 'distances']
+            # Retrieve relevant documents from Pinecone
+            results = self.index.query(
+                vector=query_embedding,
+                top_k=n_results,
+                include_metadata=True,
+                namespace=config.PINECONE_NAMESPACE
             )
             
-            if not results['documents'][0]:
+            # Debug logging
+            logging.info(f"Pinecone query returned {len(results.get('matches', []))} matches")
+            for i, match in enumerate(results.get('matches', [])):
+                logging.info(f"Match {i+1}: score={match.get('score', 0):.4f}, metadata keys={list(match.get('metadata', {}).keys())}")
+            
+            if not results['matches']:
+                logging.warning("No matches returned from Pinecone")
                 return "I couldn't find any relevant information to answer your question."
             
             # Prepare context from retrieved documents
             context_parts = []
-            for i, (doc, metadata, distance) in enumerate(zip(
-                results['documents'][0], 
-                results.get('metadatas', [{}] * len(results['documents'][0]))[0],
-                results.get('distances', [0] * len(results['documents'][0]))[0]
-            )):
-                source = metadata.get('source', f'Document {i+1}')
-                context_parts.append(f"[Source: {source}]\n{doc}")
+            sources = []
+            confidence_scores = []
             
+            for match in results['matches']:
+                metadata = match.get('metadata', {})
+                text = metadata.get('text', '')
+                source = metadata.get('source', f'Document')
+                score = match.get('score', 0.0)
+                
+                logging.info(f"Processing match: score={score:.4f}, text_length={len(text)}, source={source}")
+                
+                if text:
+                    context_parts.append(f"[Source: {source}]\n{text}")
+                    sources.append(source)
+                    confidence_scores.append(score)
+                else:
+                    logging.warning(f"Empty text in match with source: {source}")
+            
+            if not context_parts:
+                logging.warning("No context parts found despite having matches")
+                return "I couldn't find any relevant content to answer your question."
+            
+            logging.info(f"Found {len(context_parts)} context parts for LLM")
             context = "\n\n---\n\n".join(context_parts)
             
             # Generate response using LLM
@@ -75,9 +102,9 @@ ANSWER:"""
             # Return structured response with metadata
             return {
                 "answer": answer,
-                "sources": [meta.get('source', 'Unknown') for meta in results.get('metadatas', [{}] * len(results['documents'][0]))[0]],
-                "confidence_scores": results.get('distances', [0] * len(results['documents'][0]))[0],
-                "context_used": len(results['documents'][0])
+                "sources": sources,
+                "confidence_scores": confidence_scores,
+                "context_used": len(context_parts)
             }
             
         except Exception as e:
@@ -87,30 +114,56 @@ ANSWER:"""
     def get_similar_documents(self, query: str, n_results: int = 3):
         """Get similar documents for a query without generating an answer."""
         try:
-            query_embedding = self.embedding_model.encode(query).tolist()
-            results = self.collection.query(
-                query_embeddings=[query_embedding],
-                n_results=n_results,
-                include=['documents', 'metadatas', 'distances']
+            query_embedding = self.embedding_model.encode(query, normalize_embeddings=True).tolist()
+            results = self.index.query(
+                vector=query_embedding,
+                top_k=n_results,
+                include_metadata=True,
+                namespace=config.PINECONE_NAMESPACE
             )
-            return results
+            
+            # Format results to match the old ChromaDB format for compatibility
+            formatted_results = {
+                'documents': [[]],
+                'metadatas': [[]],
+                'distances': [[]]
+            }
+            
+            for match in results['matches']:
+                metadata = match.get('metadata', {})
+                text = metadata.get('text', '')
+                source = metadata.get('source', 'Unknown')
+                # Convert similarity score to distance (lower is more similar)
+                distance = 1.0 - match.get('score', 0.0)
+                
+                formatted_results['documents'][0].append(text)
+                formatted_results['metadatas'][0].append({'source': source})
+                formatted_results['distances'][0].append(distance)
+            
+            return formatted_results
+            
         except Exception as e:
             logging.error(f"Error retrieving similar documents: {e}")
             return None
 
 def start_qa_session():
     """Starts an interactive Q&A session (command line interface)."""
-    if not os.path.exists(config.VECTOR_DB_PATH):
-        logging.error("Vector database not found. Please run the 'vectordb' step first.")
+    # Check if Pinecone API key is available
+    if not os.getenv("PINECONE_API_KEY"):
+        logging.error("PINECONE_API_KEY not found. Please set up your Pinecone credentials.")
         return
     
-    print("🚀 RAG-Crawl4AI Interactive Q&A Session")
+    print("🚀 RAG-Crawl4AI Interactive Q&A Session (Pinecone)")
     print("=" * 50)
     print("Ask questions about MOSDAC data and services!")
     print("Type 'quit' to exit.")
     print()
     
-    rag_system = RAGPipeline()
+    try:
+        rag_system = RAGPipeline()
+    except Exception as e:
+        print(f"❌ Failed to initialize RAG system: {e}")
+        return
     
     # Example questions
     example_questions = [
@@ -144,6 +197,9 @@ def start_qa_session():
                 print(f"\n✅ Answer: {result['answer']}")
                 print(f"\n📊 Sources used: {', '.join(result['sources'][:3])}")
                 print(f"📈 Retrieved {result['context_used']} relevant documents")
+                if result['confidence_scores']:
+                    avg_confidence = sum(result['confidence_scores']) / len(result['confidence_scores'])
+                    print(f"🎯 Average confidence: {avg_confidence:.3f}")
             else:
                 print(f"\n✅ Answer: {result}")
             

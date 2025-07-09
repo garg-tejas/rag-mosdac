@@ -117,13 +117,11 @@ python check_gpu.py                  # Verify GPU acceleration
 - **Training & Education**: Interactive learning tool for satellite data and missions
 - **Cross-Mission Analysis**: Understand relationships between different programs
 
-**Production Scalability**: Multi-agency support, real-time data integration, advanced analytics, multilingual processing.
-
 ## 🎯 **Technical Excellence**
 
-**Performance**: GPU acceleration, smart batching, memory optimization, enterprise-grade error handling
+**Performance**: GPU acceleration, smart batching, memory optimization
 
-**Technology Stack**: Crawl4AI + Playwright (crawling), Gemini 2.0 Flash (LLM), SentenceTransformers (embeddings), ChromaDB (vector search), Streamlit (interface), PyTorch (acceleration)
+**Technology Stack**: Crawl4AI + Playwright (crawling), Gemini 2.0 Flash (LLM), SentenceTransformers (embeddings), Neo4j (knowledge graph), Pinecone (vector search), Streamlit (interface), PyTorch (acceleration)
 
 ## 🏆 **Proof-of-Concept Scope**
 

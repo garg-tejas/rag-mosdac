@@ -1,12 +1,15 @@
 # src/config.py
+import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # --- Project Paths ---
 ROOT_DIR = Path(__file__).parent.parent
 OUTPUT_DIR = ROOT_DIR / "output"
 MARKDOWN_DIR = OUTPUT_DIR / "markdown" / "mosdac.gov.in"
-KG_FILE = OUTPUT_DIR / "knowledge_graph.json"
-VECTOR_DB_PATH = str(OUTPUT_DIR / "vector_db")
 LOG_FILE = OUTPUT_DIR / "pipeline.log"
 
 # --- Crawl Configuration ---
@@ -20,6 +23,15 @@ URLS_TO_CRAWL = [
 # --- LLM Configuration ---
 LLM_PROVIDER = "gemini/gemini-2.0-flash"
 
-# --- Vector DB Configuration ---
-VECTOR_DB_COLLECTION = "mosdac_collection"
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+# --- Vector DB Configuration (Pinecone) ---
+EMBEDDING_MODEL = "BAAI/bge-large-en-v1.5"
+PINECONE_INDEX_NAME = "mosdac-rag"
+PINECONE_DIMENSION = 1024  # Dimension for BAAI/bge-large-en-v1.5
+PINECONE_METRIC = "cosine"
+PINECONE_NAMESPACE = "mosdac"  # Namespace for organizing vectors
+
+# --- Knowledge Graph Configuration (Neo4j Aura) ---
+NEO4J_URI = os.getenv("NEO4J_URI", "neo4j+s://your-instance.databases.neo4j.io")
+NEO4J_USERNAME = os.getenv("NEO4J_USERNAME", "neo4j")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "your-password")
+NEO4J_DATABASE = "neo4j"
