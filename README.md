@@ -146,3 +146,30 @@ python check_gpu.py                  # Verify GPU acceleration
 ---
 
 > **💡 Innovation Summary**: This proof-of-concept demonstrates how modern AI can transform static satellite documentation into intelligent, queryable knowledge systems - showcasing our approach for the future of space data management and mission planning.
+
+## 🆕 **Latest Improvements**
+
+**Knowledge Graph Enhancements**:
+
+- ✅ **Smart Entity Normalization**: Converts "INSAT-3D", "INSAT 3D", "insat_3d" to consistent format, preventing duplicates
+- ✅ **Relationship Standardization**: Normalizes relations like "operates", "manages", "runs" into consistent vocabulary
+- ✅ **Case-Insensitive Matching**: Handles variations in capitalization and spacing automatically
+- ✅ **Interactive QA Visualization**: Knowledge graph appears during Q&A sessions showing relevant entities and relationships
+- 🆕 **BFS Graph Expansion**: Search now finds ALL connected nodes using Breadth-First Search algorithm
+- 🆕 **Depth-Controlled Exploration**: Adjustable search depth (1-5 hops) for comprehensive or focused results
+- 🆕 **Visual Highlighting**: Original search matches highlighted in gold, connected nodes in different colors
+
+**User Experience**:
+
+- 🎨 **Real-time Graph Visualization**: See related entities and connections for every question answered
+- 🔍 **Enhanced Entity Discovery**: Improved matching algorithm finds more relevant knowledge graph content
+- 📊 **Duplicate Prevention**: Cleaner knowledge graphs with consolidated entity representations
+- 🌐 **Connected Component Analysis**: See entire networks of related entities, not just direct matches
+- 📈 **Depth Distribution**: Visual feedback showing how entities are connected at different depths
+- 🎯 **Smart Search**: Handles multiple name formats ("INSAT-3D", "INSAT 3D", "insat") seamlessly
+
+**BFS Search Examples**:
+
+- **Search "INSAT-3D"** → Find satellite + organization that operates it + instruments it carries + data it measures
+- **Search "temperature"** → Find parameter + satellites that measure it + organizations that process it + related data products
+- **Depth Control**: Limit to immediate connections (depth 1) or explore the full network (depth 3-5)

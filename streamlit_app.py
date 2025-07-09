@@ -477,49 +477,115 @@ def show_documents():
         with col4:
             st.metric("File Size", f"{selected_file.stat().st_size / 1024:.1f} KB")
 
-def create_network_graph(entities, relationships):
-    """Create an interactive network graph using pyvis."""
+def create_network_graph(entities, relationships, original_matches=None):
+    """Create an interactive network graph using pyvis with highlighting for original matches."""
+    
     try:
-        # Create a networkx graph
-        G = nx.Graph()
-        
-        # Add nodes (entities)
-        for entity in entities:
-            G.add_node(entity['name'], type=entity['type'])
-        
-        # Add edges (relationships)
-        for rel in relationships:
-            if rel['source'] in [e['name'] for e in entities] and rel['target'] in [e['name'] for e in entities]:
-                G.add_edge(rel['source'], rel['target'], relation=rel['relation'])
-        
         # Create pyvis network
-        net = Network(height="500px", width="100%", bgcolor="#ffffff", font_color="black")
+        net = Network(height="400px", width="100%", bgcolor="#222222", font_color="white")
         
-        # Convert networkx graph to pyvis
-        net.from_nx(G)
-        
-        # Customize appearance
+        # Configure physics
         net.set_options("""
-        {
+        var options = {
           "physics": {
             "enabled": true,
-            "stabilization": {"iterations": 100}
-          },
-          "nodes": {
-            "font": {"size": 12}
-          },
-          "edges": {
-            "font": {"size": 10},
-            "smooth": {"type": "continuous"}
+            "barnesHut": {
+              "gravitationalConstant": -30000,
+              "centralGravity": 0.3,
+              "springLength": 95,
+              "springConstant": 0.04,
+              "damping": 0.09,
+              "avoidOverlap": 0.1
+            },
+            "maxVelocity": 26,
+            "minVelocity": 0.1,
+            "timestep": 0.35,
+            "stabilization": {"iterations": 150}
           }
         }
         """)
         
+        # Color scheme for different entity types
+        type_colors = {
+            "satellite": "#FF6B6B",      # Red
+            "organization": "#4ECDC4",   # Teal  
+            "instrument": "#45B7D1",     # Blue
+            "data_product": "#96CEB4",   # Green
+            "parameter": "#FECA57",      # Yellow
+            "mission": "#FF9FF3",        # Pink
+            "service": "#54A0FF",        # Light Blue
+            "application": "#5F27CD",    # Purple
+            "technology": "#00D2D3"      # Cyan
+        }
+        
+        # Set to track original matches for highlighting
+        original_match_set = set(original_matches) if original_matches else set()
+        
+        # Add nodes with different styling for original matches
+        for entity in entities:
+            entity_name = entity['name']
+            entity_type = entity.get('type', 'unknown')
+            
+            # Determine color and size based on whether it's an original match
+            is_original = entity_name in original_match_set
+            base_color = type_colors.get(entity_type, "#95A5A6")
+            
+            if is_original:
+                # Original matches: larger, brighter, with border
+                color = base_color
+                size = 25
+                borderWidth = 4
+                borderColor = "#FFD700"  # Gold border for original matches
+                title = f"🎯 ORIGINAL MATCH\nName: {entity_name}\nType: {entity_type}"
+            else:
+                # Expanded nodes: smaller, slightly transparent
+                color = base_color + "CC"  # Add transparency
+                size = 15
+                borderWidth = 1
+                borderColor = "#FFFFFF"
+                title = f"🔗 Connected Node\nName: {entity_name}\nType: {entity_type}"
+            
+            net.add_node(
+                entity_name, 
+                label=entity_name.replace('_', ' ').title(),
+                color=color,
+                size=size,
+                title=title,
+                borderWidth=borderWidth,
+                shapeProperties={"borderDashes": False if is_original else [5, 5]}
+            )
+        
+        # Add edges with different styles for connections to original matches
+        for rel in relationships:
+            source_is_original = rel['source'] in original_match_set
+            target_is_original = rel['target'] in original_match_set
+            
+            # Style edge based on connection to original matches
+            if source_is_original or target_is_original:
+                # Connection involves an original match - make it prominent
+                color = "#FFD700"  # Gold
+                width = 3
+            else:
+                # Connection between expanded nodes - make it subtle
+                color = "#95A5A6"  # Gray
+                width = 1
+            
+            net.add_edge(
+                rel['source'], 
+                rel['target'],
+                label=rel['relation'].replace('_', ' ').title(),
+                color=color,
+                width=width,
+                title=f"Relationship: {rel['relation']}"
+            )
+        
         # Save to temporary file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
-            net.save_graph(f.name)
-            return f.name
-    
+        temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8')
+        net.save_graph(temp_file.name)
+        temp_file.close()
+        
+        return temp_file.name
+        
     except Exception as e:
         st.error(f"Error creating network graph: {e}")
         return None
@@ -592,23 +658,86 @@ def show_knowledge_graph():
                 # Show what we're searching for
                 st.caption(f"🔍 Searching for entities containing: '{search_term}'")
         
+        # BFS Expansion Controls (only show when searching)
+        if search_term:
+            with st.expander("🔗 BFS Expansion Settings", expanded=False):
+                col1, col2 = st.columns(2)
+                with col1:
+                    max_depth = st.slider(
+                        "Maximum BFS Depth", 
+                        min_value=1, 
+                        max_value=5, 
+                        value=3,
+                        help="How many hops away from matching entities to include"
+                    )
+                with col2:
+                    show_original_highlights = st.checkbox(
+                        "Highlight Original Matches",
+                        value=True,
+                        help="Visually distinguish original search matches from expanded nodes"
+                    )
+                st.info("🌐 BFS will find all entities connected to your search matches within the specified depth")
+        
         # Filter entities and relationships based on selection
         filtered_entities = []
+        
+        # First, find entities that match the search term
+        matching_entities = []
         for entity in entities:
             # Apply type filter
             if entity['type'] not in selected_types:
                 continue
             # Apply smart search filter
-            if search_term and not smart_entity_search(entity['name'], search_term):
-                continue
-            filtered_entities.append(entity)
+            if search_term:
+                if smart_entity_search(entity['name'], search_term):
+                    matching_entities.append(entity)
+            else:
+                filtered_entities.append(entity)
         
-        # Filter relationships to only include filtered entities
-        filtered_entity_names = {e['name'] for e in filtered_entities}
-        filtered_relationships = [
-            rel for rel in relationships 
-            if rel['source'] in filtered_entity_names and rel['target'] in filtered_entity_names
-        ]
+        # If search term is provided, expand to include all connected nodes
+        if search_term and matching_entities:
+            # Use BFS to find all connected entities
+            max_depth = locals().get('max_depth', 3)  # Default to 3 if not set
+            subgraph_result = find_connected_subgraph(matching_entities, entities, relationships, max_depth)
+            filtered_entities = subgraph_result["entities"]
+            
+            # Apply type filter to the expanded results
+            filtered_entities = [e for e in filtered_entities if e['type'] in selected_types]
+            
+            # Filter relationships to only include filtered entities
+            filtered_entity_names = {e['name'] for e in filtered_entities}
+            filtered_relationships = [
+                rel for rel in relationships 
+                if rel['source'] in filtered_entity_names and rel['target'] in filtered_entity_names
+            ]
+            
+            # Show expansion information with depth details
+            original_matches = subgraph_result["original_matches"]
+            expanded_count = subgraph_result["expanded_count"]
+            max_depth_used = subgraph_result["max_depth_used"]
+            
+            if expanded_count > 0:
+                st.success(f"🎯 Found {len(original_matches)} direct matches → Expanded to {len(filtered_entities)} connected entities (+{expanded_count} nodes, max depth: {max_depth_used})")
+                
+                # Show depth distribution
+                depths = subgraph_result["depths"]
+                depth_counts = {}
+                for entity_name, depth in depths.items():
+                    if any(e['name'] == entity_name and e['type'] in selected_types for e in entities):
+                        depth_counts[depth] = depth_counts.get(depth, 0) + 1
+                
+                depth_info = " | ".join([f"Depth {d}: {count}" for d, count in sorted(depth_counts.items())])
+                st.caption(f"📊 Distribution: {depth_info}")
+            else:
+                st.info(f"🎯 Found {len(original_matches)} matching entities (no additional connections within depth {max_depth})")
+                
+        else:
+            # No search term - filter relationships normally
+            filtered_entity_names = {e['name'] for e in filtered_entities}
+            filtered_relationships = [
+                rel for rel in relationships 
+                if rel['source'] in filtered_entity_names and rel['target'] in filtered_entity_names
+            ]
         
         st.info(f"Showing {len(filtered_entities)} entities and {len(filtered_relationships)} relationships")
         
@@ -641,7 +770,11 @@ def show_knowledge_graph():
             
             if filtered_entities and filtered_relationships:
                 # Create interactive network graph
-                graph_file = create_network_graph(filtered_entities, filtered_relationships)
+                original_matches_list = []
+                if search_term and 'subgraph_result' in locals():
+                    original_matches_list = subgraph_result.get("original_matches", [])
+                
+                graph_file = create_network_graph(filtered_entities, filtered_relationships, original_matches_list)
                 if graph_file:
                     # Display the graph
                     with open(graph_file, 'r', encoding='utf-8') as f:
@@ -650,6 +783,21 @@ def show_knowledge_graph():
                     
                     # Clean up temp file
                     os.unlink(graph_file)
+                
+                # Add legend for the visualization
+                if search_term and original_matches_list:
+                    with st.expander("🎨 Visualization Legend", expanded=False):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.markdown("**Node Types:**")
+                            st.markdown("🎯 **Gold Border**: Original search matches")
+                            st.markdown("🔗 **White Border**: Connected nodes found via BFS")
+                            st.markdown("**Size**: Original matches are larger")
+                        with col2:
+                            st.markdown("**Edge Types:**")
+                            st.markdown("🟡 **Gold Edges**: Connect to original matches")
+                            st.markdown("⚪ **Gray Edges**: Connect expanded nodes")
+                            st.markdown("**Width**: Connections to matches are thicker")
                 
                 # Graph statistics
                 st.markdown("### 📈 Network Statistics")
@@ -1084,6 +1232,77 @@ def smart_entity_search(entity_name: str, search_term: str) -> bool:
         return True
     
     return False
+
+def find_connected_subgraph(matching_entities: list, all_entities: list, all_relationships: list, max_depth: int = 3) -> dict:
+    """
+    Use BFS to find all entities connected to the matching entities up to max_depth.
+    Returns a dictionary with expanded entities, relationships, and depth information.
+    """
+    if not matching_entities:
+        return {"entities": [], "relationships": [], "depths": {}, "original_matches": [], "expanded_count": 0}
+    
+    # Create adjacency list for efficient graph traversal
+    adjacency = {}
+    for entity in all_entities:
+        adjacency[entity['name']] = []
+    
+    # Build adjacency list from relationships
+    for rel in all_relationships:
+        if rel['source'] in adjacency and rel['target'] in adjacency:
+            adjacency[rel['source']].append(rel['target'])
+            adjacency[rel['target']].append(rel['source'])  # Undirected graph
+    
+    # BFS to find all connected nodes with depth tracking
+    visited = set()
+    depths = {}  # Track depth of each node
+    queue = []
+    original_matches = set()
+    
+    # Start BFS from all matching entities (depth 0)
+    for entity in matching_entities:
+        entity_name = entity['name']
+        if entity_name not in visited:
+            queue.append((entity_name, 0))  # (node, depth)
+            visited.add(entity_name)
+            depths[entity_name] = 0
+            original_matches.add(entity_name)
+    
+    # Perform BFS with depth limiting
+    while queue:
+        current_entity, current_depth = queue.pop(0)
+        
+        # Don't expand beyond max_depth
+        if current_depth >= max_depth:
+            continue
+        
+        # Add all neighbors to queue if not visited
+        for neighbor in adjacency.get(current_entity, []):
+            if neighbor not in visited:
+                visited.add(neighbor)
+                new_depth = current_depth + 1
+                depths[neighbor] = new_depth
+                queue.append((neighbor, new_depth))
+    
+    # Collect all entities in the connected component
+    connected_entities = []
+    for entity in all_entities:
+        if entity['name'] in visited:
+            connected_entities.append(entity)
+    
+    # Collect all relationships within the connected component
+    connected_relationships = []
+    for rel in all_relationships:
+        if rel['source'] in visited and rel['target'] in visited:
+            connected_relationships.append(rel)
+    
+    return {
+        "entities": connected_entities,
+        "relationships": connected_relationships,
+        "depths": depths,
+        "original_matches": list(original_matches),
+        "expanded_count": len(connected_entities) - len(matching_entities),
+        "max_depth_used": max(depths.values()) if depths else 0
+    }
 
 def get_related_subgraph(search_texts: list) -> dict:
     """Get entities and relationships related to the given search texts."""
